@@ -1,0 +1,27 @@
+# USB Configuration for Samsung Galaxy A12 Nacho (SM-A127F / a12s)
+# Vendor ID: 04e8 (Samsung Electronics Co., Ltd.)
+
+on init
+    setprop sys.usb.configfs 1
+    setprop sys.usb.controller "13600000.usb"
+    setprop sys.usb.ffs.aio_compat 1
+
+on property:sys.usb.config=none && property:sys.usb.configfs=1
+    setprop sys.usb.state none
+
+on property:sys.usb.config=mtp && property:sys.usb.configfs=1
+    setprop sys.usb.ffs.ready 1
+    write /config/usb_gadget/g1/idProduct 0x6860
+    setprop sys.usb.state mtp
+
+on property:sys.usb.config=mtp,adb && property:sys.usb.configfs=1
+    start adbd
+    setprop sys.usb.ffs.ready 1
+    write /config/usb_gadget/g1/idProduct 0x6860
+    setprop sys.usb.state mtp,adb
+
+on property:sys.usb.config=adb && property:sys.usb.configfs=1
+    start adbd
+    setprop sys.usb.ffs.ready 1
+    write /config/usb_gadget/g1/idProduct 0x685e
+    setprop sys.usb.state adb

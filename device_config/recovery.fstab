@@ -1,0 +1,22 @@
+# Android fstab file for Samsung Galaxy A12 Nacho (SM-A127F / a12s)
+# Target: Exynos 850 (universal3830)
+
+# Dynamic Logical Partitions (inside super.img)
+system      /system     ext4    ro      wait,logical,first_stage_mount
+vendor      /vendor     ext4    ro      wait,logical,first_stage_mount
+product     /product    ext4    ro      wait,logical,first_stage_mount
+odm         /odm        ext4    ro      wait,logical,first_stage_mount
+
+# Core Physical Partitions
+/boot           emmc    /dev/block/by-name/boot         flags=backup=1;display="Boot";flashimg=1
+/recovery       emmc    /dev/block/by-name/recovery     flags=backup=1;display="Recovery";flashimg=1
+/dtbo           emmc    /dev/block/by-name/dtbo         flags=backup=1;display="DTBO";flashimg=1
+/data           f2fs    /dev/block/by-name/userdata     flags=encryptable=footer;length=-20480
+/cache          ext4    /dev/block/by-name/cache        flags=backup=1;display="Cache"
+/efs            ext4    /dev/block/by-name/sec_efs      flags=backup=1;display="EFS"
+/metadata       ext4    /dev/block/by-name/metadata     flags=backup=1;display="Metadata"
+/misc           emmc    /dev/block/by-name/misc         flags=display="Misc"
+
+# Removable Storage
+/external_sd    vfat    /dev/block/mmcblk1p1 /dev/block/mmcblk1 flags=display="MicroSD Card";storage;wipeingui;removable
+/usb-otg        vfat    /dev/block/sda1 /dev/block/sda          flags=display="USB OTG";storage;wipeingui;removable

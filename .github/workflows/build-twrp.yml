@@ -1,0 +1,195 @@
+name: Custom TWRP Recovery CI - Samsung Galaxy A12 Nacho (SM-A127F)
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'twrp-v*'
+  workflow_dispatch:
+    inputs:
+      twrp_branch:
+        description: 'Minimal TWRP Manifest Branch'
+        required: true
+        type: choice
+        options:
+          - 'twrp-12.1 (Android 12/12L/13 base)'
+          - 'twrp-11 (Android 11 base)'
+        default: 'twrp-12.1 (Android 12/12L/13 base)'
+      device_repo:
+        description: 'Device Tree Git Repository'
+        required: false
+        type: string
+        default: 'https://github.com/MizProject/TWRP-GalaxyA12s.git'
+      device_branch:
+        description: 'Device Tree Branch'
+        required: false
+        type: string
+        default: 'android-12.1'
+
+jobs:
+  build-twrp:
+    name: Build Custom TWRP for SM-A127F
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Optimize Runner Disk Space
+        run: |
+          echo "==> Freeing disk space on runner..."
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df -h
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ccache curl flex g++-multilib gcc-multilib git \
+            gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev \
+            liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 \
+            libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip \
+            zlib1g-dev python3 python-is-python3 libelf-dev openjdk-11-jdk tar
+
+      - name: Install Google Repo Tool
+        run: |
+          mkdir -p ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Initialize Minimal TWRP Manifest
+        run: |
+          mkdir -p twrp_workspace && cd twrp_workspace
+
+          MANIFEST_BRANCH="twrp-12.1"
+          if [[ "${{ github.event.inputs.twrp_branch }}" == *"twrp-11"* ]]; then
+            MANIFEST_BRANCH="twrp-11"
+          fi
+
+          echo "==> Initializing Minimal TWRP Manifest ($MANIFEST_BRANCH)..."
+          repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git \
+            -b ${MANIFEST_BRANCH} --depth=1
+
+          echo "==> Syncing manifest (shallow clone)..."
+          repo sync -c -j$(nproc) --force-sync --no-clone-bundle --no-tags
+
+      - name: Clone Device Tree & Apply Verified Exynos 850 Configs
+        run: |
+          cd twrp_workspace
+          mkdir -p device/samsung/a12s
+
+          DEV_REPO="${{ github.event.inputs.device_repo || 'https://github.com/MizProject/TWRP-GalaxyA12s.git' }}"
+          DEV_BRANCH="${{ github.event.inputs.device_branch || 'android-12.1' }}"
+
+          echo "==> Cloning device tree from $DEV_REPO ($DEV_BRANCH)..."
+          git clone --depth=1 "$DEV_REPO" -b "$DEV_BRANCH" device/samsung/a12s || \
+            git clone --depth=1 https://github.com/MizProject/TWRP-GalaxyA12s.git device/samsung/a12s
+
+          # Inject verified fstab and USB MTP config
+          if [ -f "$GITHUB_WORKSPACE/twrp/device_config/recovery.fstab" ]; then
+            echo "==> Injecting verified recovery.fstab..."
+            cp "$GITHUB_WORKSPACE/twrp/device_config/recovery.fstab" device/samsung/a12s/recovery.fstab
+          fi
+
+          if [ -f "$GITHUB_WORKSPACE/twrp/device_config/init.recovery.usb.rc" ]; then
+            echo "==> Injecting MTP USB fix..."
+            cp "$GITHUB_WORKSPACE/twrp/device_config/init.recovery.usb.rc" device/samsung/a12s/recovery/root/init.recovery.usb.rc 2>/dev/null || \
+            cp "$GITHUB_WORKSPACE/twrp/device_config/init.recovery.usb.rc" device/samsung/a12s/init.recovery.usb.rc 2>/dev/null || true
+          fi
+
+          if [ -f "$GITHUB_WORKSPACE/twrp/scripts/multidisabler_patcher.sh" ]; then
+            echo "==> Bundling multidisabler patcher..."
+            mkdir -p device/samsung/a12s/installer
+            cp "$GITHUB_WORKSPACE/twrp/scripts/multidisabler_patcher.sh" device/samsung/a12s/installer/multidisabler.sh
+          fi
+
+      - name: Compile TWRP Recovery Image
+        run: |
+          cd twrp_workspace
+          source build/envsetup.sh
+          
+          # Check for lunch targets
+          if [ -f "device/samsung/a12s/vendorsetup.sh" ]; then
+            source device/samsung/a12s/vendorsetup.sh
+          fi
+
+          echo "==> Setting lunch target for a12s..."
+          lunch twrp_a12s-eng || lunch twrp_a12s-userdebug || lunch omni_a12s-eng
+
+          echo "==> Building recoveryimage..."
+          mka recoveryimage -j$(nproc)
+
+          if [ -f "out/target/product/a12s/recovery.img" ]; then
+            echo "==> Build succeeded: recovery.img found."
+          else
+            echo "==> Build failed: recovery.img not produced."
+            exit 1
+          fi
+
+      - name: Package Odin TAR & Disabled VBMeta
+        run: |
+          cd twrp_workspace
+          RECOVERY_PATH="out/target/product/a12s/recovery.img"
+          
+          mkdir -p $GITHUB_WORKSPACE/dist
+          cp "$RECOVERY_PATH" "$GITHUB_WORKSPACE/dist/recovery.img"
+
+          echo "==> Packaging Odin tar and AVB disabled header..."
+          chmod +x $GITHUB_WORKSPACE/twrp/scripts/package_odin.sh || true
+          bash $GITHUB_WORKSPACE/twrp/scripts/package_odin.sh "$GITHUB_WORKSPACE/dist/recovery.img" "$GITHUB_WORKSPACE/dist"
+
+          cd $GITHUB_WORKSPACE/dist
+          ls -lh
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: TWRP-Recovery-SM-A127F
+          path: |
+            dist/*.tar
+            dist/*.img
+            dist/*.sha256
+            dist/*.md5
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/twrp-v') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Custom TWRP for Samsung Galaxy A12 Nacho (SM-A127F)
+          tag_name: ${{ github.ref_name || format('twrp-build-{0}', github.run_number) }}
+          draft: false
+          prerelease: false
+          body: |
+            ## Custom TWRP Recovery for Samsung Galaxy A12 Nacho (SM-A127F / a12s)
+            - **Target Chipset:** Exynos 850 (universal3830)
+            - **Architecture:** ARM64 Dynamic Logical Partitions (`super.img`)
+            - **Decryption:** FBE Decryption enabled
+            - **Display:** 720x1600 HD+ Touch & Backlight tuned
+            
+            ### Included Release Files:
+            1. `TWRP-*-SM-A127F-*-Odin.tar`: Flash directly in Odin **AP** slot.
+            2. `vbmeta_disabled.tar`: Flash in Odin **USERDATA** or **AP** slot to disable Samsung Knox verification bootloops.
+            3. `recovery.img`: Raw recovery binary for fastboot / TWRP app.
+            
+            ### Crucial Flashing Instructions:
+            1. In Odin v3.14.4, place `TWRP-*.tar` into **AP** and `vbmeta_disabled.tar` into **USERDATA**.
+            2. In Odin Options, **UNCHECK "Auto Reboot"**.
+            3. Click **Start**. Once `PASS` appears:
+               - Force reboot by holding `Vol Down + Power`.
+               - The exact moment the screen goes black, **instantly switch to holding `Vol Up + Power` with USB cable connected to PC**.
+            4. TWRP will boot. Tap **Wipe > Format Data** (type `yes`).
+          files: |
+            dist/*.tar
+            dist/*.img
+            dist/*.sha256
+            dist/*.md5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
