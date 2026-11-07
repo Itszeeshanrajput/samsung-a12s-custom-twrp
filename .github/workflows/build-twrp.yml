@@ -87,29 +87,36 @@ jobs:
           mkdir -p device/samsung/a12s
 
           DEV_REPO="${{ github.event.inputs.device_repo || 'https://github.com/MizProject/TWRP-GalaxyA12s.git' }}"
-          DEV_BRANCH="${{ github.event.inputs.device_branch || 'android-12.1' }}"
+          DEV_BRANCH="${{ github.event.inputs.device_branch || 'stable' }}"
 
           echo "==> Cloning device tree from $DEV_REPO ($DEV_BRANCH)..."
           git clone --depth=1 "$DEV_REPO" -b "$DEV_BRANCH" device/samsung/a12s || \
+            git clone --depth=1 https://github.com/MizProject/TWRP-GalaxyA12s.git -b stable device/samsung/a12s || \
             git clone --depth=1 https://github.com/MizProject/TWRP-GalaxyA12s.git device/samsung/a12s
 
           # Inject verified fstab and USB MTP config
-          if [ -f "$GITHUB_WORKSPACE/twrp/device_config/recovery.fstab" ]; then
-            echo "==> Injecting verified recovery.fstab..."
-            cp "$GITHUB_WORKSPACE/twrp/device_config/recovery.fstab" device/samsung/a12s/recovery.fstab
+          FSTAB_SRC=""
+          [ -f "$GITHUB_WORKSPACE/device_config/recovery.fstab" ] && FSTAB_SRC="$GITHUB_WORKSPACE/device_config/recovery.fstab"
+          [ -f "$GITHUB_WORKSPACE/twrp/device_config/recovery.fstab" ] && FSTAB_SRC="$GITHUB_WORKSPACE/twrp/device_config/recovery.fstab"
+          if [ -n "$FSTAB_SRC" ]; then
+            echo "==> Injecting verified recovery.fstab from $FSTAB_SRC..."
+            cp "$FSTAB_SRC" device/samsung/a12s/recovery.fstab
           fi
 
-          if [ -f "$GITHUB_WORKSPACE/twrp/device_config/init.recovery.usb.rc" ]; then
-            echo "==> Injecting MTP USB fix..."
-            cp "$GITHUB_WORKSPACE/twrp/device_config/init.recovery.usb.rc" device/samsung/a12s/recovery/root/init.recovery.usb.rc 2>/dev/null || \
-            cp "$GITHUB_WORKSPACE/twrp/device_config/init.recovery.usb.rc" device/samsung/a12s/init.recovery.usb.rc 2>/dev/null || true
+          USB_SRC=""
+          [ -f "$GITHUB_WORKSPACE/device_config/init.recovery.usb.rc" ] && USB_SRC="$GITHUB_WORKSPACE/device_config/init.recovery.usb.rc"
+          [ -f "$GITHUB_WORKSPACE/twrp/device_config/init.recovery.usb.rc" ] && USB_SRC="$GITHUB_WORKSPACE/twrp/device_config/init.recovery.usb.rc"
+          if [ -n "$USB_SRC" ]; then
+            echo "==> Injecting MTP USB fix from $USB_SRC..."
+            cp "$USB_SRC" device/samsung/a12s/recovery/root/init.recovery.usb.rc 2>/dev/null || \
+            cp "$USB_SRC" device/samsung/a12s/init.recovery.usb.rc 2>/dev/null || true
           fi
 
-          if [ -f "$GITHUB_WORKSPACE/twrp/scripts/multidisabler_patcher.sh" ]; then
-            echo "==> Bundling multidisabler patcher..."
-            mkdir -p device/samsung/a12s/installer
-            cp "$GITHUB_WORKSPACE/twrp/scripts/multidisabler_patcher.sh" device/samsung/a12s/installer/multidisabler.sh
-          fi
+          # Ensure libresetprop and resetprop are included in recovery packages to prevent linker crashes
+          echo "==> Adding libresetprop dependencies..."
+          echo "PRODUCT_PACKAGES += libresetprop resetprop" >> device/samsung/a12s/omni_a12s.mk || true
+          echo "PRODUCT_PACKAGES += libresetprop resetprop" >> device/samsung/a12s/device.mk || true
+          echo "TARGET_RECOVERY_DEVICE_MODULES += libresetprop resetprop" >> device/samsung/a12s/BoardConfig.mk || true
 
       - name: Compile TWRP Recovery Image
         run: |
@@ -125,6 +132,17 @@ jobs:
           lunch twrp_a12s-eng || lunch twrp_a12s-userdebug || lunch omni_a12s-eng
 
           echo "==> Building recoveryimage..."
+          mka recoveryimage -j$(nproc)
+
+          # Verify shared libraries in recovery ramdisk
+          echo "==> Verifying dynamic dependencies for recovery binary..."
+          mkdir -p out/target/product/a12s/recovery/root/system/lib64
+          for lib in $(find out/target/product/a12s/system/lib64 -name "libresetprop.so" 2>/dev/null); do
+            echo "Bundling $lib into recovery ramdisk..."
+            cp -v "$lib" out/target/product/a12s/recovery/root/system/lib64/
+          done
+
+          # Re-pack if library was copied to guarantee presence in final image
           mka recoveryimage -j$(nproc)
 
           if [ -f "out/target/product/a12s/recovery.img" ]; then
