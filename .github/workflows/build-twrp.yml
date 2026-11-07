@@ -162,29 +162,45 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Custom TWRP for Samsung Galaxy A12 Nacho (SM-A127F)
+          name: Custom TWRP v3.7.0 for Samsung Galaxy A12 Nacho (SM-A127F)
           tag_name: twrp-v3.7.0-${{ github.run_number }}
           draft: false
           prerelease: false
           body: |
-            ## Custom TWRP Recovery for Samsung Galaxy A12 Nacho (SM-A127F / a12s)
-            - **Target Chipset:** Exynos 850 (universal3830)
-            - **Architecture:** ARM64 Dynamic Logical Partitions (`super.img`)
-            - **Decryption:** FBE Decryption enabled
-            - **Display:** 720x1600 HD+ Touch & Backlight tuned
-            
-            ### Included Release Files:
-            1. `TWRP-*-SM-A127F-*-Odin.tar`: Flash directly in Odin **AP** slot.
-            2. `vbmeta_disabled.tar`: Flash in Odin **USERDATA** or **AP** slot to disable Samsung Knox verification bootloops.
-            3. `recovery.img`: Raw recovery binary for fastboot / TWRP app.
-            
-            ### Crucial Flashing Instructions:
-            1. In Odin v3.14.4, place `TWRP-*.tar` into **AP** and `vbmeta_disabled.tar` into **USERDATA**.
-            2. In Odin Options, **UNCHECK "Auto Reboot"**.
-            3. Click **Start**. Once `PASS` appears:
-               - Force reboot by holding `Vol Down + Power`.
-               - The exact moment the screen goes black, **instantly switch to holding `Vol Up + Power` with USB cable connected to PC**.
-            4. TWRP will boot. Tap **Wipe > Format Data** (type `yes`).
+            ## Custom TWRP v3.7.0 Recovery for Samsung Galaxy A12 Nacho (SM-A127F / a12s)
+            - **Target Platform:** Samsung Exynos 850 (universal3830 / a12snsxx) pure ARM64
+            - **Base Manifest:** Android 12.1 Minimal TWRP Manifest
+            - **Release Build:** Automated Production Run #${{ github.run_number }}
+
+            ### 🚀 Highlights & Integrated Enhancements:
+            1. **Super Partition Management:** Added direct backup/restore support for the entire `/super` block (System, Vendor, Product, ODM) in a single image.
+            2. **FBE v2 & F2FS Decryption Support:** Optimized for formatted user data without force-encryption traps.
+            3. **Multi-Filesystem Support:** Mounts both classic EXT4 and modern EROFS read-only images for Android 11, 12, and 13 ROMs.
+            4. **Odin Flashable Package:** Includes Odin-ready `TWRP-*-Odin.tar` tailored for the **AP** slot.
+            5. **AVB VBMeta Bypass:** Bundles `vbmeta_disabled.tar` to prevent Knox boot-verification loops.
+            6. **High-Speed USB MTP & ADB:** Native Samsung composite endpoints (`04e8:6860`) for smooth file transfer.
+            7. **Fastbootd & GSI Flashing:** Allows seamless switching to `fastbootd` mode directly in TWRP for Treble ROM installs.
+            8. **Radio & NVRAM Protection:** Dedicated GUI backup support for `/efs`, `/param` (Boot Logo), and `/dtbo`.
+            9. **External Media:** Plug-and-play mount support for MicroSD and USB OTG drives.
+
+            ### 📦 Included Artifacts:
+            - `TWRP-3.7.0_12-SM-A127F-*-Odin.tar` — Odin flashable recovery archive
+            - `vbmeta_disabled.tar` — Odin AVB disabled header (flash in USERDATA or CSC)
+            - `recovery.img` — Raw recovery binary
+            - `.sha256` and `.md5` — Payload verification checksums
+
+            ### ⚡ Flashing Instructions:
+            1. Boot into Download Mode (`Vol Down + Vol Up` + plug USB cable to PC).
+            2. In Odin v3.14.4:
+               - AP slot: `TWRP-*-Odin.tar`
+               - USERDATA slot: `vbmeta_disabled.tar`
+               - Options tab: **UNCHECK "Auto Reboot"**
+            3. Click **Start**. When `PASS!` appears:
+               - Hold `Vol Down + Power` to exit Download Mode.
+               - Immediately when the screen goes dark, switch to **Vol Up + Power** (keep USB connected to PC).
+            4. When TWRP boots:
+               - Tap **Wipe** > **Format Data** > type `yes`.
+               - Enjoy fully functional custom recovery!
           files: |
             dist/*.tar
             dist/*.img
